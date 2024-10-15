@@ -22,6 +22,8 @@
 #include "utils/rate_limit.h"
 #include "utils/utils.h"
 #include "threadpool.h"
+#include <mutex>
+
 namespace ycsbc {
 
 void EnforceClientRateLimit(long op_start_time_ns, long target_ops_per_s, long target_ops_tick_ns, int op_num) {
@@ -34,7 +36,7 @@ void EnforceClientRateLimit(long op_start_time_ns, long target_ops_per_s, long t
   }
 }
 
-inline std::tuple<long long, std::vector<int>> ClientThread(ycsbc::DB *db, ycsbc::CoreWorkload *wl, const int num_ops, bool is_loading,
+inline std::tuple<long long, std::vector<int>> ClientThread(ycsbc::DB *db, ycsbc::CoreWorkload *wl, std::vector<sem_t*>* thread_semas, const int num_ops, bool is_loading,
                         bool init_db, bool cleanup_db, utils::CountDownLatch *latch, utils::RateLimiter *rlim, ThreadPool *threadpool, 
                         int client_id, int target_ops_per_s, int burst_gap_s, int burst_size_ops) {
   cpu_set_t cpuset;
@@ -59,20 +61,21 @@ inline std::tuple<long long, std::vector<int>> ClientThread(ycsbc::DB *db, ycsbc
   //   std::this_thread::sleep_for(std::chrono::seconds(30));
   // }
 
-  if (burst_gap_s > 0) {
-    if (client_id == 0) {
-      std::this_thread::sleep_for(std::chrono::seconds(burst_gap_s));
-      adjusted_num_ops = 13;
-    } else if (client_id == 1) {
-      std::this_thread::sleep_for(std::chrono::seconds(burst_gap_s / 2));
-      adjusted_num_ops = 21;
-    }
-    // adjusted_num_ops = 123; 
-    // adjusted_num_ops = 145; 
-    // adjusted_num_ops = 180; 
-    // adjusted_num_ops = burst_size_ops;
-    num_bursts = 100;
-  }
+  // if (burst_gap_s > 0) {
+  //   if (client_id == 0) {
+  //     std::this_thread::sleep_for(std::chrono::seconds(burst_gap_s));
+  //     adjusted_num_ops = 13;
+  //   } else if (client_id == 1) {
+  //     std::this_thread::sleep_for(std::chrono::seconds(burst_gap_s / 2));
+  //     adjusted_num_ops = 21;
+  //   }
+  //   // adjusted_num_ops = 123; 
+  //   // adjusted_num_ops = 145; 
+  //   // adjusted_num_ops = 180; 
+  //   // adjusted_num_ops = burst_size_ops;
+  //   num_bursts = 100;
+  // }
+  sem_init((*thread_semas)[client_id], 0, 0);
  
   std::vector<int> op_progress;       
   int client_log_interval_s = 1;                 
@@ -138,6 +141,41 @@ inline std::tuple<long long, std::vector<int>> ClientThread(ycsbc::DB *db, ycsbc
       std::this_thread::sleep_for(std::chrono::seconds(burst_gap_s));
     }
 
+    // Force compaction with syncronization
+
+    // sema up current thread's sema N times
+    for (int i = 0; i < thread_semas->size(); i++) {
+      sem_post((*thread_semas)[client_id]);
+    }
+    
+    // sema down every sema (wait for everyone to be done)
+    for (int i = 0; i < thread_semas->size(); i++) {
+      sem_wait((*thread_semas)[i]);
+    }
+
+    static std::mutex stdout_mutex;
+
+    auto compaction_start = std::chrono::system_clock::now().time_since_epoch() / std::chrono::milliseconds(1);
+    {
+      std::lock_guard<std::mutex> guard(stdout_mutex);
+      std::cout << "[BALI LOG] " << "Synchronized manual compaction starting at time " << std::to_string(compaction_start) << std::endl;
+    }
+
+    std::string table_name;
+    if (client_id == 0) {
+      table_name = rocksdb::kDefaultColumnFamilyName;
+    } else {
+      table_name = "cf" + std::to_string(client_id + 1);
+    }
+    db->RunCompaction(table_name);
+
+    // compaction end stuff
+    auto compaction_duration = std::chrono::system_clock::now().time_since_epoch() / std::chrono::milliseconds(1) - compaction_start;
+    {
+      std::lock_guard<std::mutex> guard(stdout_mutex);
+      std::cout << "[BALI LOG] " << "Synchronized manual compaction time elapsed: " << std::to_string(compaction_duration) << std::endl;
+    }
+    
     if (cleanup_db) {
       db->Cleanup();
     }

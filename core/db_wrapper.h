@@ -34,6 +34,9 @@ class DBWrapper : public DB {
   void Init() {
     db_->Init();
   }
+  void RunCompaction(std::string& cfname) {
+    db_->RunCompaction(cfname);
+  }
   void Cleanup() {
     db_->Cleanup();
   }

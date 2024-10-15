@@ -43,6 +43,12 @@ class DB {
   /// Clears any state for accessing this DB.
   ///
   virtual void Cleanup() { }
+
+  ///
+  /// Manually triggered compaction
+  ///
+  virtual void RunCompaction(std::string& cfname) { }
+
   ///
   /// Reads a record from the database.
   /// Field/value pairs from the result are stored in a vector.

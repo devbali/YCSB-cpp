@@ -30,6 +30,7 @@
 #include "utils/resources.h"
 #include "utils/timer.h"
 #include "utils/utils.h"
+#include <semaphore>
 
 // #ifdef HDRMEASUREMENT
 #include <hdr/hdr_histogram.h>
@@ -238,12 +239,15 @@ int main(const int argc, const char *argv[]) {
                                  measurements, per_client_measurements, &latch, status_interval_ms, dbs);
     }
     std::vector<std::future<std::tuple<long long, std::vector<int>>>> client_threads;
+    std::vector<sem_t*>* thread_sems = new std::vector<sem_t*>();
+
     for (int i = 0; i < num_threads; ++i) {
+      thread_sems->push_back(new sem_t{});
       int thread_ops = total_ops / num_threads;
       if (i < total_ops % num_threads) {
         thread_ops++;
       }
-      client_threads.emplace_back(std::async(std::launch::async, ycsbc::ClientThread, dbs[i], &wl,
+      client_threads.emplace_back(std::async(std::launch::async, ycsbc::ClientThread, dbs[i], &wl, thread_sems,
                                              thread_ops, true, /*init_db=*/true, !do_transaction, &latch, nullptr, nullptr, i, /*target_op_per_s*/0, 0, 0));
     }
     assert((int)client_threads.size() == num_threads);
@@ -297,7 +301,10 @@ int main(const int argc, const char *argv[]) {
     }
     std::vector<std::future<std::tuple<long long, std::vector<int>>>> client_threads;
     std::vector<ycsbc::utils::RateLimiter *> rate_limiters;
+    std::vector<sem_t*>* thread_sems = new std::vector<sem_t*>();      
+
     for (int i = 0; i < num_threads; ++i) {
+      thread_sems->push_back(new sem_t{});
       int thread_ops = total_ops / num_threads;
       if (i < total_ops % num_threads) {
         thread_ops++;
@@ -308,7 +315,7 @@ int main(const int argc, const char *argv[]) {
         rlim = new ycsbc::utils::RateLimiter(per_thread_ops, per_thread_ops);
       }
       rate_limiters.push_back(rlim);
-      client_threads.emplace_back(std::async(std::launch::async, ycsbc::ClientThread, dbs[i], &wl,
+      client_threads.emplace_back(std::async(std::launch::async, ycsbc::ClientThread, dbs[i], &wl, thread_sems,
                                              thread_ops, false, !do_load, true, &latch, rlim, 
                                              &threadpool, i, target_rates[i], burst_gap_s, 
                                              burst_size_ops));

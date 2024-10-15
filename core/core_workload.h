@@ -210,6 +210,7 @@ class CoreWorkload {
     delete insert_key_sequence_;
     delete transaction_insert_key_sequence_;
   }
+    std::string table_name_;
 
  protected:
   static Generator<uint64_t> *GetFieldLenGenerator(const utils::Properties &p);
@@ -228,7 +229,7 @@ class CoreWorkload {
   DB::Status TransactionInsert(DB &db);
   DB::Status TransactionInsertBatch(DB &db, int client_id, std::string table_name);
 
-  std::string table_name_;
+
   int field_count_;
   std::string field_prefix_;
   bool read_all_fields_;

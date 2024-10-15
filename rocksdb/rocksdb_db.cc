@@ -39,6 +39,9 @@ namespace {
   const std::string PROP_DESTROY = "rocksdb.destroy";
   const std::string PROP_DESTROY_DEFAULT = "false";
 
+  const std::string PROP_TABLES = "rocksdb.num_cf";
+  const std::string PROP_TABLES_DEFAULT = "12";
+
   const std::string PROP_COMPRESSION = "rocksdb.compression";
   const std::string PROP_COMPRESSION_DEFAULT = "no";
 
@@ -238,15 +241,16 @@ void RocksdbDB::Init() {
 
   std::cout << "[TGRIGGS_LOG] init column families: default, cf2, cf3, cf4\n";
   std::vector<rocksdb::ColumnFamilyOptions> cf_opts;
-  cf_opts.push_back(rocksdb::ColumnFamilyOptions());
-  cf_opts.push_back(rocksdb::ColumnFamilyOptions());
-  cf_opts.push_back(rocksdb::ColumnFamilyOptions());
-  cf_opts.push_back(rocksdb::ColumnFamilyOptions());
+  int NUM_TABLES = std::atoi(props.GetProperty(PROP_TABLES, PROP_TABLES_DEFAULT).c_str());
+  for (int i = 0; i < NUM_TABLES; i++) {
+    cf_opts.push_back(rocksdb::ColumnFamilyOptions());
+  }
+
   GetCfOptions(props, cf_opts);
   cf_descs.emplace_back(rocksdb::kDefaultColumnFamilyName, cf_opts[0]);
-  cf_descs.emplace_back("cf2", cf_opts[1]);
-  cf_descs.emplace_back("cf3", cf_opts[2]);
-  cf_descs.emplace_back("cf4", cf_opts[3]);
+  for (int i = 2; i <= NUM_TABLES; i++) {
+    cf_descs.emplace_back("cf"+std::to_string(i), cf_opts[i-1]);
+  }
 
   std::cout << "[TGRIGGS_LOG] creating stats object\n";
   opt.statistics = rocksdb::CreateDBStatistics();
@@ -280,6 +284,13 @@ void RocksdbDB::Cleanup() {
     }
   }
   delete db_;
+}
+
+void RocksdbDB::RunCompaction (std::string& cfname) {
+  if (db_ == nullptr) return;
+  std::cout << "[BALI LOG] " << "Manually trigerred compaction of table " << cfname << std::endl;
+  auto compactionOptions = rocksdb::CompactRangeOptions();
+  db_->CompactRange(compactionOptions, table2handle(cfname), nullptr, nullptr);
 }
 
 void RocksdbDB::GetOptions(const utils::Properties &props, rocksdb::Options *opt,
@@ -414,6 +425,7 @@ void RocksdbDB::GetOptions(const utils::Properties &props, rocksdb::Options *opt
     if (props.GetProperty(PROP_OPTIMIZE_LEVELCOMP, PROP_OPTIMIZE_LEVELCOMP_DEFAULT) == "true") {
       opt->OptimizeLevelStyleCompaction();
     }
+    opt->disable_auto_compactions = true;
   }
 
   // Convert rate limits from Mbps to bps
@@ -488,6 +500,7 @@ void RocksdbDB::GetCfOptions(const utils::Properties &props, std::vector<rocksdb
   vals = Prop2vector(props, PROP_NUM_LEVELS, PROP_NUM_LEVELS_DEFAULT);
   for (size_t i = 0; i < cf_opt.size(); ++i) {
     cf_opt[i].num_levels = std::stoi(vals[i]);
+    cf_opt[i].disable_auto_compactions = true;
   }
 }
 
@@ -555,12 +568,8 @@ rocksdb::ColumnFamilyHandle* RocksdbDB::table2handle(const std::string& table) {
   int cf_idx;
   if (table == rocksdb::kDefaultColumnFamilyName) {
     cf_idx = 0;
-  } else if (table == "cf2") {
-    cf_idx = 1;
-  } else if (table == "cf3") {
-    cf_idx = 2;
-  } else if (table == "cf4") {
-    cf_idx = 3;
+  } else if (table.substr(0,2) == "cf") {
+    cf_idx = std::stoi(table.substr(2)) - 1;
   } else {
     return nullptr;
   }

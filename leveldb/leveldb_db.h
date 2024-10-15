@@ -29,6 +29,7 @@ class LeveldbDB : public DB {
   ~LeveldbDB() {}
 
   void Init();
+  inline void RunCompaction(std::string& cfname) {};
 
   void Cleanup();
 

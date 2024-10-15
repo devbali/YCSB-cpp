@@ -42,7 +42,7 @@ const char *ycsbc::kOperationString[ycsbc::MAXOPTYPE] = {
 };
 
 const string CoreWorkload::TABLENAME_PROPERTY = "table";
-const string CoreWorkload::TABLENAME_DEFAULT = "usertable";
+const string CoreWorkload::TABLENAME_DEFAULT = "default";
 
 const string CoreWorkload::FIELD_COUNT_PROPERTY = "fieldcount";
 const string CoreWorkload::FIELD_COUNT_DEFAULT = "10";
@@ -296,12 +296,8 @@ bool CoreWorkload::DoTransaction(DB &db, int client_id) {
   std::string table_name;
   if (client_id == 0) {
     table_name = rocksdb::kDefaultColumnFamilyName;
-  } else if (client_id == 1) {
-    table_name = "cf2";
-  } else if (client_id == 2) {
-    table_name = "cf3";
-  } else if (client_id == 3) {
-    table_name = "cf4";
+  } else {
+    table_name = "cf" + std::to_string(client_id + 1);
   }
 
   DB::Status status;

@@ -23,6 +23,7 @@ class LmdbDB : public DB {
   ~LmdbDB() {}
 
   void Init();
+  inline void RunCompaction(std::string& cfname) {};
 
   void Cleanup();
 

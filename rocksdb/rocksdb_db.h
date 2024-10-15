@@ -29,6 +29,7 @@ class RocksdbDB : public DB {
   void Init();
 
   void Cleanup();
+  void RunCompaction(std::string& cfname);
 
   Status Read(const std::string &table, const std::string &key,
               const std::vector<std::string> *fields, std::vector<Field> &result,
