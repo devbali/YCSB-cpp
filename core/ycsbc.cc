@@ -99,10 +99,10 @@ void StatusThread(ycsbc::Measurements *measurements, std::vector<ycsbc::Measurem
         cache_misses = block_cache->GetAndResetMisses();
       }
 
-      int cache_usage = 0;
-      int cache_capacity = 0;
+      size_t cache_usage = 0;
+      size_t cache_capacity = 0;
 
-      int user_cache_usage = 0,user_cache_reserved = 0,user_cache_hits =0,user_cache_misses=0;
+      size_t user_cache_usage = 0,user_cache_reserved = 0,user_cache_hits =0,user_cache_misses=0;
 
       if (block_cache) {
         cache_usage = block_cache->GetUsage();

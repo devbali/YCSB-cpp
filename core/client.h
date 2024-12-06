@@ -43,12 +43,12 @@ inline std::tuple<long long, std::vector<int>> ClientThread(ycsbc::DB *db, ycsbc
   size_t cpu_for_client = client_id + 8;
   CPU_SET(cpu_for_client, &cpuset);
   std::cout << "[TGRIGGS_LOG] Pinning client to " << cpu_for_client << std::endl;
-  int rc = pthread_setaffinity_np(pthread_self(),
-                                  sizeof(cpu_set_t), &cpuset);
-  if (rc != 0) {
-    fprintf(stderr, "Couldn't set thread affinity.\n");
-    std::exit(1);
-  }
+  // int rc = pthread_setaffinity_np(pthread_self(),
+  //                                 sizeof(cpu_set_t), &cpuset);
+  // if (rc != 0) {
+  //   fprintf(stderr, "Couldn't set thread affinity.\n");
+  //   std::exit(1);
+  // }
 
   int num_bursts = burst_size_ops;
   if (burst_size_ops == 0) {

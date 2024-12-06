@@ -26,6 +26,7 @@
 #include <rocksdb/rate_limiter.h>
 // #include <rocksdb/util/rate_limiter_multi_tenant_impl.h>
 #include <rocksdb/tg_thread_local.h>
+#include <limits>
 
 namespace {
   const std::string PROP_NAME = "rocksdb.dbname";
@@ -530,15 +531,16 @@ void RocksdbDB::GetCfOptions(const utils::Properties &props, std::vector<rocksdb
     rocksdb::BlockBasedTableOptions table_options;
     std::string val = vals[i];
     if (std::stoul(val) > 0) {
-      std::cout << "[TGRIGGS_LOG] Creating cache of size " << val << std::endl;
       rocksdb::LRUCacheOptions cache_opts;
       cache_opts.client_id = i;
       cache_opts.capacity = std::stoul(val);
+      int maxInt = std::numeric_limits<int>::max();
+      std::cout << "[TGRIGGS_LOG] Creating cache of size " << std::to_string(cache_opts.capacity) << " MAX INT " << std::to_string(maxInt) << std::endl;
       cache_opts.strict_capacity_limit = false;
       cache_opts.fairdb_use_pooled = use_pooled;
       cache_opts.pooled_capacity = std::stoul(val);
       cache_opts.request_additional_delay_microseconds = std::stoi(props.GetProperty(PROP_FAIRDB_CACHE_RAD_MICROSECONDS, PROP_FAIRDB_CACHE_RAD_MICROSECONDS_DEFAULT));
-      cache_opts.read_io_mbps = 5000;
+      cache_opts.read_io_mbps = 6000;
       cache_opts.additional_rampups_supported = 2;
       cache_opts.num_shard_bits = std::stoi(props.GetProperty(PROP_CACHE_NUM_SHARD_BITS, PROP_CACHE_NUM_SHARD_BITS_DEFAULT));
 
