@@ -21,22 +21,13 @@
 #include "utils/countdown_latch.h"
 #include "utils/rate_limit.h"
 #include "utils/utils.h"
-#include "threadpool.h"
+
 namespace ycsbc {
-
-void EnforceClientRateLimit(long op_start_time_ns, long target_ops_per_s, long target_ops_tick_ns, int op_num) {
-  if (target_ops_per_s > 0) {
-    long deadline = op_start_time_ns + target_ops_tick_ns;
-    std::chrono::nanoseconds deadline_ns(deadline);
-    std::chrono::time_point<std::chrono::high_resolution_clock, std::chrono::nanoseconds> target_time_point(deadline_ns);
-
-    while (std::chrono::high_resolution_clock::now() < target_time_point) {}
-  }
-}
 
 inline std::tuple<long long, std::vector<int>> ClientThread(ycsbc::DB *db, ycsbc::CoreWorkload *wl, const int num_ops, bool is_loading,
                         bool init_db, bool cleanup_db, utils::CountDownLatch *latch, utils::RateLimiter *rlim, ThreadPool *threadpool, 
-                        int client_id, int target_ops_per_s, int burst_gap_ms, int burst_size_ops, uint64_t first_burst_ops = 0) {
+                        int client_id, int target_ops_per_s, int burst_gap_ms, int burst_size_ops, uint64_t first_burst_ops, bool forced_warmup,
+                        int num_read_burst_cycles, size_t read_burst_num_records) {
   cpu_set_t cpuset;
   CPU_ZERO(&cpuset);
 
@@ -75,6 +66,11 @@ inline std::tuple<long long, std::vector<int>> ClientThread(ycsbc::DB *db, ycsbc
 
     std::cout << "[FAIRDB Log] Client starting at " << std::to_string(client_start_micros) << " for " << std::to_string(num_ops) << " ops" << std::endl;
 
+    if (forced_warmup) {
+      wl->DoWarmup(*db, client_id, target_ops_tick_ns, target_ops_per_s, threadpool);
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+    }
+
     int ops = 0;
     for (int b = 0; b < num_bursts; ++b) {
       if (num_bursts == 2 && first_burst_ops != 0) {
@@ -84,53 +80,64 @@ inline std::tuple<long long, std::vector<int>> ClientThread(ycsbc::DB *db, ycsbc
           adjusted_num_ops = num_ops - first_burst_ops;
         }
       }
-      for (int i = 0; i < adjusted_num_ops; ++i) {
-        if (rlim) {
-          rlim->Consume(1);
+
+      if (num_read_burst_cycles == 0) {
+        num_read_burst_cycles = 1;
+        read_burst_num_records = 0;
+      }
+
+      for (int read_burst_cycle_i = 0; read_burst_cycle_i < num_read_burst_cycles; read_burst_cycle_i ++) {
+
+        for (int i = 0; i < adjusted_num_ops; ++i) {
+          if (rlim) {
+            rlim->Consume(1);
+          }
+
+          auto op_start_time = std::chrono::high_resolution_clock::now();
+          auto op_start_time_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(op_start_time.time_since_epoch()).count();
+
+          if (is_loading) {
+            wl->DoInsert(*db);
+          } else {
+            auto txn_lambda = [wl, db, client_id]() {
+              wl->DoTransaction(*db, client_id);
+              return nullptr;
+            };
+            
+            // Submit operation and do not wait for a return. 
+            threadpool->async_dispatch(client_id, txn_lambda);
+          }
+          ops++;
+
+          // Periodically check whether log interval has been hit
+          if (i % 100 == 0) {
+            auto current_time = std::chrono::steady_clock::now();
+            auto elapsedTime = std::chrono::duration_cast<std::chrono::seconds>(current_time - interval_start_time);
+            if (elapsedTime.count() >= client_log_interval_s) {
+              op_progress.push_back(ops);
+              interval_start_time = std::chrono::steady_clock::now();
+            }
+            // auto current_time_sys = std::chrono::system_clock::now();
+            // auto total_exp_time = std::chrono::duration_cast<std::chrono::seconds>(current_time_sys - client_start);
+            // if (total_exp_time.count() >= total_exp_duration_s) {
+            //   break;
+            // }
+          }
+          
+          EnforceClientRateLimit(op_start_time_ns, target_ops_per_s, target_ops_tick_ns, ops);
         }
 
-        auto op_start_time = std::chrono::high_resolution_clock::now();
-        auto op_start_time_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(op_start_time.time_since_epoch()).count();
-
-        if (is_loading) {
-          wl->DoInsert(*db);
-        } else {
-
-          // auto txn_lambda = [wl, db, client_id]() {
-          //   wl->DoTransaction(*db, client_id);
-          //   return nullptr;  // to match void* return
-          // };
-
-          // // Submit operation to thread pool and wait for it. 
-          // std::future<void*> result = threadpool->dispatch(txn_lambda);
-          // result.wait();
-          auto txn_lambda = [wl, db, client_id]() {
-            wl->DoTransaction(*db, client_id);
+        if (read_burst_num_records > 0) {
+          auto txn_lambda = [wl, db, client_id, read_burst_num_records]() {
+            wl->ReadBurstRecords(*db, client_id, read_burst_num_records);
             return nullptr;
           };
           
           // Submit operation and do not wait for a return. 
           threadpool->async_dispatch(client_id, txn_lambda);
         }
-        ops++;
-
-        // Periodically check whether log interval has been hit
-        if (i % 100 == 0) {
-          auto current_time = std::chrono::steady_clock::now();
-          auto elapsedTime = std::chrono::duration_cast<std::chrono::seconds>(current_time - interval_start_time);
-          if (elapsedTime.count() >= client_log_interval_s) {
-            op_progress.push_back(ops);
-            interval_start_time = std::chrono::steady_clock::now();
-          }
-          // auto current_time_sys = std::chrono::system_clock::now();
-          // auto total_exp_time = std::chrono::duration_cast<std::chrono::seconds>(current_time_sys - client_start);
-          // if (total_exp_time.count() >= total_exp_duration_s) {
-          //   break;
-          // }
-        }
-        
-        EnforceClientRateLimit(op_start_time_ns, target_ops_per_s, target_ops_tick_ns, ops);
       }
+      
       std::this_thread::sleep_for(std::chrono::milliseconds(burst_gap_ms));
     }
 

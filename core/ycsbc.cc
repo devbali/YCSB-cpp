@@ -188,8 +188,8 @@ void RateLimitThread(std::string rate_file, std::vector<ycsbc::utils::RateLimite
   }
 }
 
-std::vector<int> stringToIntVector(const std::string& input) {
-  std::vector<int> result;
+std::vector<int64_t> stringToIntVector(const std::string& input) {
+  std::vector<int64_t> result;
   std::stringstream ss(input);
   std::string item;
   while (std::getline(ss, item, ',')) {
@@ -233,7 +233,7 @@ int main(const int argc, const char *argv[]) {
   }
 
   const int num_threads = stoi(props.GetProperty("threadcount", "1"));
-  std::vector<int> target_rates = stringToIntVector(props.GetProperty("target_rates", "0"));
+  std::vector<int64_t> target_rates = stringToIntVector(props.GetProperty("target_rates", "0"));
 
   ycsbc::Measurements *measurements = ycsbc::CreateMeasurements(&props);
   if (measurements == nullptr) {
@@ -289,7 +289,7 @@ int main(const int argc, const char *argv[]) {
         thread_ops++;
       }
       client_threads.emplace_back(std::async(std::launch::async, ycsbc::ClientThread, dbs[i], &wl,
-                                             thread_ops, true, /*init_db=*/true, !do_transaction, &latch, nullptr, nullptr, i, /*target_op_per_s*/0, 0, 0, 0));
+                                             thread_ops, true, /*init_db=*/true, !do_transaction, &latch, nullptr, nullptr, i, /*target_op_per_s*/0, 0, 0, 0, false,0,0));
     }
     assert((int)client_threads.size() == num_threads);
 
@@ -327,6 +327,8 @@ int main(const int argc, const char *argv[]) {
   const int num_cfs = std::stoi(props.GetProperty("rocksdb.num_cfs", "1"));
   threadpool.start(/*num_threads=*/ tpool_threads, /*num_clients=*/num_cfs);
 
+  const bool do_forced_warmup = props.GetProperty("forced_warmup", "false") == "true";
+
   if (do_transaction) {
     // initial ops per second, unlimited if <= 0
     const int64_t ops_limit = std::stoi(props.GetProperty("limit.ops", "0"));
@@ -348,11 +350,14 @@ int main(const int argc, const char *argv[]) {
     std::vector<ycsbc::utils::RateLimiter *> rate_limiters;
 
     uint64_t total_target_rates = 0;
-    std::vector<int> ramp_durations = stringToIntVector(props.GetProperty("ramp_duration", "0,0,0"));
-    std::vector<int> ramp_starts = stringToIntVector(props.GetProperty("ramp_start", "0,0,0"));
+    std::vector<int64_t> ramp_durations = stringToIntVector(props.GetProperty("ramp_duration", "0,0,0"));
+    std::vector<int64_t> ramp_starts = stringToIntVector(props.GetProperty("ramp_start", "0,0,0"));
     for (int i = 0; i < num_threads; i++) {
       total_target_rates += target_rates[i];
     }
+
+    std::vector<int64_t> num_read_burst_cycles_list = stringToIntVector(props.GetProperty("num_read_burst_cycles", "0,0,0"));
+    std::vector<int64_t> read_burst_num_records_list = stringToIntVector(props.GetProperty("read_burst_num_records", "0,0,0"));
 
     for (int i = 0; i < num_threads; ++i) {
       uint64_t thread_ops = ((uint64_t) total_ops * target_rates[i]) / total_target_rates;
@@ -374,10 +379,17 @@ int main(const int argc, const char *argv[]) {
         rlim = new ycsbc::utils::RateLimiter(per_thread_ops, per_thread_ops);
       }
       rate_limiters.push_back(rlim);
+
+      int num_read_burst_cycles = 0; size_t read_burst_num_records = 0;
+      if (num_read_burst_cycles_list.size() > i) {
+        num_read_burst_cycles = num_read_burst_cycles_list[i];
+        read_burst_num_records = read_burst_num_records_list[i];
+      }
       client_threads.emplace_back(std::async(std::launch::async, ycsbc::ClientThread, dbs[i], &wl,
                                              thread_ops, false, !do_load, true, &latch, rlim, 
                                              &threadpool, i, target_rates[i], burst_gap_ms, 
-                                             burst_size_ops, first_burst_ops));
+                                             burst_size_ops, first_burst_ops, do_forced_warmup, 
+                                             num_read_burst_cycles, read_burst_num_records));
     }
 
     std::future<void> rlim_future;

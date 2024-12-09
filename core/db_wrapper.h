@@ -42,10 +42,10 @@ class DBWrapper : public DB {
   Status Read(const std::string &table, const std::string &key,
               const std::vector<std::string> *fields, std::vector<Field> &result,
               int client_id) {
-    timer_.Start();
-    Status s = db_->Read(table, key, fields, result, client_id);
 
-    uint64_t elapsed = timer_.End();
+    auto start = std::chrono::_V2::system_clock::now();
+    Status s = db_->Read(table, key, fields, result, client_id);
+    uint64_t elapsed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::_V2::system_clock::now() - start).count();
     if (s == kOK) {
       measurements_->Report(READ, elapsed);
       per_client_measurements_[client_id]->Report(READ, elapsed);
@@ -55,6 +55,26 @@ class DBWrapper : public DB {
     }
     return s;
   }
+
+  Status MultiRead (const std::string &table, std::vector<std::string> &keys,
+              const std::vector<std::string> *fields, std::vector<Field> &result,
+              int client_id) {
+    printf("MULTI READ EXECUTING 1\n");
+
+    auto start = std::chrono::_V2::system_clock::now();
+    Status s = db_->MultiRead(table, keys, fields, result, client_id);
+    uint64_t elapsed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::_V2::system_clock::now() - start).count();
+    printf("MULTI READ EXECUTING 2, elapsed %d\n", elapsed);
+    if (s == kOK) {
+      measurements_->Report(MULTI_READ, elapsed);
+      per_client_measurements_[client_id]->Report(MULTI_READ, elapsed);
+    } else {
+      measurements_->Report(MULTI_READ_FAILED, elapsed);
+      per_client_measurements_[client_id]->Report(MULTI_READ_FAILED, elapsed);
+    }
+    return s;
+  }
+
   Status Scan(const std::string &table, const std::string &key, int record_count,
               const std::vector<std::string> *fields, std::vector<std::vector<Field>> &result,
               int client_id) {

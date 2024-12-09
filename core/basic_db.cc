@@ -124,6 +124,12 @@ void BasicDB::PrintDbStats() {
   return;
 }
 
+DB::Status BasicDB::MultiRead(const std::string &table, std::vector<std::string> &keys,
+                   const std::vector<std::string> *fields,
+                   std::vector<Field> &result, int client_id) {
+
+                   }
+
 DB *NewBasicDB() {
   return new BasicDB;
 }

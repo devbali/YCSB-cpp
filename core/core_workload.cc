@@ -13,6 +13,7 @@
 #include "skewed_latest_generator.h"
 #include "const_generator.h"
 #include "core_workload.h"
+#include "client.h"
 #include "random_byte_generator.h"
 #include "utils/utils.h"
 
@@ -26,6 +27,7 @@ using std::string;
 const char *ycsbc::kOperationString[ycsbc::MAXOPTYPE] = {
   "INSERT",
   "READ",
+  "MULTI_READ",
   "UPDATE",
   "SCAN",
   "READMODIFYWRITE",
@@ -34,6 +36,7 @@ const char *ycsbc::kOperationString[ycsbc::MAXOPTYPE] = {
   "INSERT_BATCH",
   "INSERT-FAILED",
   "READ-FAILED",
+  "MULTI_READ-FAILED",
   "UPDATE-FAILED",
   "SCAN-FAILED",
   "READMODIFYWRITE-FAILED",
@@ -165,6 +168,8 @@ Operation stringToOperation(const std::string& operationName) {
         {"INSERT_BATCH", INSERT_BATCH},
         {"INSERT_FAILED", INSERT_FAILED},
         {"READ_FAILED", READ_FAILED},
+        {"MULTI_READ", MULTI_READ},
+        {"MULTI_READ_FAILED", MULTI_READ_FAILED},
         {"UPDATE_FAILED", UPDATE_FAILED},
         {"SCAN_FAILED", SCAN_FAILED},
         {"READMODIFYWRITE_FAILED", READMODIFYWRITE_FAILED},
@@ -368,6 +373,60 @@ bool CoreWorkload::DoInsert(DB &db) {
   std::vector<DB::Field> fields;
   BuildValues(fields);
   return db.Insert(table_name_, key, fields) == DB::kOK;
+}
+
+void EnforceClientRateLimit(long op_start_time_ns, long target_ops_per_s, long target_ops_tick_ns, int op_num) {
+  if (target_ops_per_s > 0) {
+    long deadline = op_start_time_ns + target_ops_tick_ns;
+    std::chrono::nanoseconds deadline_ns(deadline);
+    std::chrono::time_point<std::chrono::high_resolution_clock, std::chrono::nanoseconds> target_time_point(deadline_ns);
+
+    while (std::chrono::high_resolution_clock::now() < target_time_point) {}
+  }
+}
+
+std::string CoreWorkload::GetKey (int client_id, size_t i) {
+  uint64_t key_num = i;
+  int offset = std::stoi(client_to_cf_offset[client_id]);
+  uint64_t client_key_num = i + offset;
+  return BuildKeyName(client_key_num);
+}
+
+void CoreWorkload::ReadBurstRecords (DB &db, int client_id, size_t read_burst_num_records) {
+  size_t record_count = record_counts_[client_id];
+  std::string table_name = client_to_cf_[client_id];
+  std::vector<std::string> keys;
+  int start_index;
+  if (read_burst_num_records > record_count) {
+    start_index = 0;
+  } else {
+    start_index = record_count-read_burst_num_records;
+  }
+  for (int i = start_index; i < record_count; i++) {
+    keys.push_back(GetKey(client_id, i));
+  }
+  std::vector<DB::Field> result;
+  db.MultiRead(table_name, keys, NULL, result, client_id);
+}
+
+void CoreWorkload::DoWarmup(DB &db, int client_id, long int target_ops_tick_ns, int target_ops_per_s, ThreadPool* threadpool) {
+  size_t record_count = record_counts_[client_id];
+  std::string table_name = client_to_cf_[client_id];
+  for (size_t record_i = 0; record_i < record_count; record_i ++) {
+    auto op_start_time = std::chrono::high_resolution_clock::now();
+    auto op_start_time_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(op_start_time.time_since_epoch()).count();
+    std::string key = GetKey(client_id, record_i);
+    auto txn_lambda = [&db, client_id, key, table_name]() {
+      std::vector<DB::Field> result;
+      db.Read(table_name, key, NULL, result, client_id);
+      return nullptr;
+    };
+    
+    // Submit operation and do not wait for a return. 
+    threadpool->async_dispatch(client_id, txn_lambda);
+
+    EnforceClientRateLimit(op_start_time_ns, target_ops_per_s, target_ops_tick_ns, record_i+1);
+  }
 }
 
 bool CoreWorkload::DoTransaction(DB &db, int client_id) {

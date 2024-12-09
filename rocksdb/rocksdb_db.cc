@@ -87,7 +87,7 @@ namespace {
   const std::string PROP_USE_DIRECT_WRITE_DEFAULT = "false";
 
   const std::string PROP_USE_DIRECT_READ = "rocksdb.use_direct_reads";
-  const std::string PROP_USE_DIRECT_READ_DEFAULT = "false";
+  const std::string PROP_USE_DIRECT_READ_DEFAULT = "true";
 
   const std::string PROP_USE_MMAP_WRITE = "rocksdb.allow_mmap_writes";
   const std::string PROP_USE_MMAP_WRITE_DEFAULT = "false";
@@ -218,6 +218,7 @@ void RocksdbDB::Init() {
   if (format == "single") {
     format_ = kSingleRow;
     method_read_ = &RocksdbDB::ReadSingle;
+    method_multi_read_ = &RocksdbDB::ReadMultiple;
     method_scan_ = &RocksdbDB::ScanSingle;
     method_update_ = &RocksdbDB::UpdateSingle;
     method_insert_ = &RocksdbDB::InsertSingle;
@@ -540,7 +541,7 @@ void RocksdbDB::GetCfOptions(const utils::Properties &props, std::vector<rocksdb
       cache_opts.fairdb_use_pooled = use_pooled;
       cache_opts.pooled_capacity = std::stoul(val);
       cache_opts.request_additional_delay_microseconds = std::stoi(props.GetProperty(PROP_FAIRDB_CACHE_RAD_MICROSECONDS, PROP_FAIRDB_CACHE_RAD_MICROSECONDS_DEFAULT));
-      cache_opts.read_io_mbps = 6000;
+      cache_opts.read_io_mbps = 6000 / 16;
       cache_opts.additional_rampups_supported = 2;
       cache_opts.num_shard_bits = std::stoi(props.GetProperty(PROP_CACHE_NUM_SHARD_BITS, PROP_CACHE_NUM_SHARD_BITS_DEFAULT));
 
@@ -672,6 +673,35 @@ DB::Status RocksdbDB::ReadSingle(const std::string &table, const std::string &ke
     DeserializeRow(result, data);
     assert(result.size() == static_cast<size_t>(fieldcount_));
   }
+  return kOK;
+}
+
+DB::Status RocksdbDB::ReadMultiple(const std::string &table, std::vector<std::string> &keys,
+                                 const std::vector<std::string> *fields,
+                                 std::vector<Field> &result, int client_id) {
+  std::string data;
+
+  auto* handle = table2handle(table);
+  if (handle == nullptr) {
+    std::cout << "[FAIRDB_LOG] Bad table/handle: " << table << std::endl;
+    return kError;
+  }
+
+  // Set the rate limiter priority to highest (USER request).
+  rocksdb::ReadOptions read_options = rocksdb::ReadOptions();
+  read_options.rate_limiter_priority = rocksdb::Env::IOPriority::IO_USER;
+
+  std::vector<rocksdb::ColumnFamilyHandle*> handle_list;
+  std::vector<std::string> data_list;
+  std::vector<rocksdb::Slice> keys_list; 
+  for (int i = 0; i < keys.size(); i++) {
+    handle_list.push_back(handle);
+    data_list.push_back(std::string());
+    keys_list.push_back(rocksdb::Slice(keys[i].c_str()));
+  }
+
+  db_->MultiGet(read_options, handle_list, keys_list, &data_list);
+  // TODO devbali: check if records are alright (field count assert)
   return kOK;
 }
 
@@ -847,6 +877,9 @@ void RocksdbDB::UpdateResourceShares(std::vector<ycsbc::utils::MultiTenantResour
 }
 
 std::vector<ycsbc::utils::MultiTenantResourceUsage> RocksdbDB::GetResourceUsage() {
+  if (!db_) {
+    return std::vector<ycsbc::utils::MultiTenantResourceUsage>();
+  }
   std::shared_ptr<rocksdb::RateLimiter> write_rate_limiter = db_->GetOptions().rate_limiter;
   int num_clients = cf_handles_.size();
 

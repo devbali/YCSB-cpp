@@ -19,14 +19,18 @@
 #include "acknowledged_counter_generator.h"
 #include "utils/properties.h"
 #include "utils/utils.h"
+#include "threadpool.h"
 
 namespace ycsbc {
+
+void EnforceClientRateLimit(long op_start_time_ns, long target_ops_per_s, long target_ops_tick_ns, int op_num) ;
 
 std::vector<std::string> Prop2vector(const utils::Properties &props, const std::string& prop, const std::string& default_val);
 
 enum Operation {
   INSERT = 0,
   READ,
+  MULTI_READ,
   UPDATE,
   SCAN,
   READMODIFYWRITE,
@@ -35,6 +39,7 @@ enum Operation {
   INSERT_BATCH,
   INSERT_FAILED,
   READ_FAILED,
+  MULTI_READ_FAILED,
   UPDATE_FAILED,
   SCAN_FAILED,
   READMODIFYWRITE_FAILED,
@@ -207,6 +212,8 @@ class CoreWorkload {
 
   virtual bool DoInsert(DB &db);
   virtual bool DoTransaction(DB &db, int client_id);
+  void DoWarmup(DB &db, int client_id, long int target_ops_tick_ns, int target_ops_per_s, ThreadPool* threadpool);
+  void ReadBurstRecords (DB &db, int client_id, size_t read_burst_num_records);
 
   bool read_all_fields() const { return read_all_fields_; }
   bool write_all_fields() const { return write_all_fields_; }
@@ -247,6 +254,8 @@ class CoreWorkload {
   DB::Status TransactionRandomInsert(DB &db, int client_id, std::string table_name);
   DB::Status TransactionInsert(DB &db);
   DB::Status TransactionInsertBatch(DB &db, int client_id, std::string table_name);
+
+  std::string GetKey (int client_id, size_t i);
 
   std::string table_name_;
   int field_count_;

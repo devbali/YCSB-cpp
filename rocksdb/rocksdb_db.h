@@ -47,6 +47,11 @@ class RocksdbDB : public DB {
               int client_id) {
     return (this->*(method_read_))(table, key, fields, result, client_id);
   }
+  Status MultiRead (const std::string &table, std::vector<std::string> &keys,
+              const std::vector<std::string> *fields, std::vector<Field> &result,
+              int client_id) {
+    return (this->*(method_multi_read_))(table, keys, fields, result, client_id);
+  }
 
   Status Scan(const std::string &table, const std::string &key, int len,
               const std::vector<std::string> *fields, std::vector<std::vector<Field>> &result, int client_id = 0) {
@@ -98,6 +103,10 @@ class RocksdbDB : public DB {
 
   Status ReadSingle(const std::string &table, const std::string &key,
                     const std::vector<std::string> *fields, std::vector<Field> &result, int client_id);
+  Status ReadMultiple(const std::string &table, std::vector<std::string> &key,
+                                 const std::vector<std::string> *fields,
+                                 std::vector<Field> &result, int client_id);
+
   Status ScanSingle(const std::string &table, const std::string &key, int len,
                     const std::vector<std::string> *fields,
                     std::vector<std::vector<Field>> &result);
@@ -112,6 +121,8 @@ class RocksdbDB : public DB {
                       std::vector<Field> &values, int num_keys);
 
   Status (RocksdbDB::*method_read_)(const std::string &, const std:: string &,
+                                    const std::vector<std::string> *, std::vector<Field> &, int client_id);
+  Status (RocksdbDB::*method_multi_read_)(const std::string &, std::vector<std:: string> &,
                                     const std::vector<std::string> *, std::vector<Field> &, int client_id);
   Status (RocksdbDB::*method_scan_)(const std::string &, const std::string &,
                                     int, const std::vector<std::string> *,

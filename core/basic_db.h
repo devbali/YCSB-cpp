@@ -30,6 +30,9 @@ class BasicDB : public DB {
   Status Read(const std::string &table, const std::string &key,
               const std::vector<std::string> *fields, std::vector<Field> &result,
               int client_id = 0);
+  Status MultiRead(const std::string &table, std::vector<std::string> &keys,
+                   const std::vector<std::string> *fields,
+                   std::vector<Field> &result, int client_id);
 
   Status Scan(const std::string &table, const std::string &key, int len,
               const std::vector<std::string> *fields, std::vector<std::vector<Field>> &result, int client_id);

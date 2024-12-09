@@ -240,6 +240,9 @@ void CentralResourceSchedulerThread(
     while (!latch->AwaitForMs(options.rsched_interval_ms)) {
       // TODO(tgriggs): Optimize this path next -- are any locks taken?
       std::vector<MultiTenantResourceUsage> total_usage = dbs[0]->GetResourceUsage();
+      if (total_usage.size() == 0) {
+        continue;
+      }
       std::vector<MultiTenantResourceUsage> interval_usage(num_clients);
       for (size_t i = 0; i < num_clients; ++i) {
         interval_usage[i] = ycsbc::utils::ComputeResourceUsageRateInInterval(prev_usage[i], total_usage[i], options.rsched_interval_ms);
