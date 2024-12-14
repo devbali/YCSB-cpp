@@ -392,7 +392,7 @@ std::string CoreWorkload::GetKey (int client_id, size_t i) {
   return BuildKeyName(client_key_num);
 }
 
-void CoreWorkload::ReadBurstRecords (DB &db, int client_id, size_t read_burst_num_records) {
+void CoreWorkload::ReadBurstRecords (DB *db, int client_id, size_t read_burst_num_records) {
   size_t record_count = record_counts_[client_id];
   std::string table_name = client_to_cf_[client_id];
   std::vector<std::string> keys;
@@ -406,7 +406,7 @@ void CoreWorkload::ReadBurstRecords (DB &db, int client_id, size_t read_burst_nu
     keys.push_back(GetKey(client_id, i));
   }
   std::vector<DB::Field> result;
-  db.MultiRead(table_name, keys, NULL, result, client_id);
+  db->MultiRead(table_name, keys, NULL, result, client_id);
 }
 
 void CoreWorkload::DoWarmup(DB &db, int client_id, long int target_ops_tick_ns, int target_ops_per_s, ThreadPool* threadpool) {

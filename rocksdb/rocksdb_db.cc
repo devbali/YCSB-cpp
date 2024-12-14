@@ -541,7 +541,7 @@ void RocksdbDB::GetCfOptions(const utils::Properties &props, std::vector<rocksdb
       cache_opts.fairdb_use_pooled = use_pooled;
       cache_opts.pooled_capacity = std::stoul(val);
       cache_opts.request_additional_delay_microseconds = std::stoi(props.GetProperty(PROP_FAIRDB_CACHE_RAD_MICROSECONDS, PROP_FAIRDB_CACHE_RAD_MICROSECONDS_DEFAULT));
-      cache_opts.read_io_mbps = 6000 / 16;
+      cache_opts.read_io_mbps = 6000;
       cache_opts.additional_rampups_supported = 2;
       cache_opts.num_shard_bits = std::stoi(props.GetProperty(PROP_CACHE_NUM_SHARD_BITS, PROP_CACHE_NUM_SHARD_BITS_DEFAULT));
 
@@ -680,7 +680,7 @@ DB::Status RocksdbDB::ReadMultiple(const std::string &table, std::vector<std::st
                                  const std::vector<std::string> *fields,
                                  std::vector<Field> &result, int client_id) {
   std::string data;
-
+  printf("IN read multiple, table: %s\n", table.c_str());
   auto* handle = table2handle(table);
   if (handle == nullptr) {
     std::cout << "[FAIRDB_LOG] Bad table/handle: " << table << std::endl;
@@ -690,6 +690,7 @@ DB::Status RocksdbDB::ReadMultiple(const std::string &table, std::vector<std::st
   // Set the rate limiter priority to highest (USER request).
   rocksdb::ReadOptions read_options = rocksdb::ReadOptions();
   read_options.rate_limiter_priority = rocksdb::Env::IOPriority::IO_USER;
+  read_options.fill_cache = false;
 
   std::vector<rocksdb::ColumnFamilyHandle*> handle_list;
   std::vector<std::string> data_list;

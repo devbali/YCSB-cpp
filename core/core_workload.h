@@ -213,7 +213,7 @@ class CoreWorkload {
   virtual bool DoInsert(DB &db);
   virtual bool DoTransaction(DB &db, int client_id);
   void DoWarmup(DB &db, int client_id, long int target_ops_tick_ns, int target_ops_per_s, ThreadPool* threadpool);
-  void ReadBurstRecords (DB &db, int client_id, size_t read_burst_num_records);
+  void ReadBurstRecords (DB *db, int client_id, size_t read_burst_num_records);
 
   bool read_all_fields() const { return read_all_fields_; }
   bool write_all_fields() const { return write_all_fields_; }

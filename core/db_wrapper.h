@@ -61,6 +61,9 @@ class DBWrapper : public DB {
               int client_id) {
     printf("MULTI READ EXECUTING 1\n");
 
+    // std::vector<std::vector<Field>> result_local;
+    // Status s = db_->Scan(table, keys[0], keys.size(), NULL, result_local, client_id);
+
     auto start = std::chrono::_V2::system_clock::now();
     Status s = db_->MultiRead(table, keys, fields, result, client_id);
     uint64_t elapsed = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::_V2::system_clock::now() - start).count();

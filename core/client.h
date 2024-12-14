@@ -86,56 +86,64 @@ inline std::tuple<long long, std::vector<int>> ClientThread(ycsbc::DB *db, ycsbc
         read_burst_num_records = 0;
       }
 
-      for (int read_burst_cycle_i = 0; read_burst_cycle_i < num_read_burst_cycles; read_burst_cycle_i ++) {
+      if (read_burst_num_records > 0) {
+        std::this_thread::sleep_for(std::chrono::seconds(4));
+        for (int i = 0; i < num_read_burst_cycles; i++) {
+            wl->ReadBurstRecords(db, client_id, read_burst_num_records);
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+        }
+      } else {
 
-        for (int i = 0; i < adjusted_num_ops; ++i) {
-          if (rlim) {
-            rlim->Consume(1);
-          }
 
-          auto op_start_time = std::chrono::high_resolution_clock::now();
-          auto op_start_time_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(op_start_time.time_since_epoch()).count();
-
-          if (is_loading) {
-            wl->DoInsert(*db);
-          } else {
-            auto txn_lambda = [wl, db, client_id]() {
-              wl->DoTransaction(*db, client_id);
-              return nullptr;
-            };
-            
-            // Submit operation and do not wait for a return. 
-            threadpool->async_dispatch(client_id, txn_lambda);
-          }
-          ops++;
-
-          // Periodically check whether log interval has been hit
-          if (i % 100 == 0) {
-            auto current_time = std::chrono::steady_clock::now();
-            auto elapsedTime = std::chrono::duration_cast<std::chrono::seconds>(current_time - interval_start_time);
-            if (elapsedTime.count() >= client_log_interval_s) {
-              op_progress.push_back(ops);
-              interval_start_time = std::chrono::steady_clock::now();
+          for (int i = 0; i < adjusted_num_ops; ++i) {
+            if (rlim) {
+              rlim->Consume(1);
             }
-            // auto current_time_sys = std::chrono::system_clock::now();
-            // auto total_exp_time = std::chrono::duration_cast<std::chrono::seconds>(current_time_sys - client_start);
-            // if (total_exp_time.count() >= total_exp_duration_s) {
-            //   break;
-            // }
-          }
-          
-          EnforceClientRateLimit(op_start_time_ns, target_ops_per_s, target_ops_tick_ns, ops);
-        }
 
-        if (read_burst_num_records > 0) {
-          auto txn_lambda = [wl, db, client_id, read_burst_num_records]() {
-            wl->ReadBurstRecords(*db, client_id, read_burst_num_records);
-            return nullptr;
-          };
-          
-          // Submit operation and do not wait for a return. 
-          threadpool->async_dispatch(client_id, txn_lambda);
-        }
+            auto op_start_time = std::chrono::high_resolution_clock::now();
+            auto op_start_time_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(op_start_time.time_since_epoch()).count();
+
+            if (is_loading) {
+              wl->DoInsert(*db);
+            } else {
+              auto txn_lambda = [wl, db, client_id]() {
+                wl->DoTransaction(*db, client_id);
+                return nullptr;
+              };
+              
+              // Submit operation and do not wait for a return. 
+              threadpool->async_dispatch(client_id, txn_lambda);
+            }
+            ops++;
+
+            // Periodically check whether log interval has been hit
+            if (i % 100 == 0) {
+              auto current_time = std::chrono::steady_clock::now();
+              auto elapsedTime = std::chrono::duration_cast<std::chrono::seconds>(current_time - interval_start_time);
+              if (elapsedTime.count() >= client_log_interval_s) {
+                op_progress.push_back(ops);
+                interval_start_time = std::chrono::steady_clock::now();
+              }
+              // auto current_time_sys = std::chrono::system_clock::now();
+              // auto total_exp_time = std::chrono::duration_cast<std::chrono::seconds>(current_time_sys - client_start);
+              // if (total_exp_time.count() >= total_exp_duration_s) {
+              //   break;
+              // }
+            }
+            
+            EnforceClientRateLimit(op_start_time_ns, target_ops_per_s, target_ops_tick_ns, ops);
+          }
+
+          if (read_burst_num_records > 0) {
+            // auto txn_lambda = [wl, db, client_id, read_burst_num_records]() {
+              
+            //   return nullptr;
+            // };
+            
+            // // Submit operation and do not wait for a return. 
+            // threadpool->async_dispatch(client_id, txn_lambda);
+          }
+        
       }
       
       std::this_thread::sleep_for(std::chrono::milliseconds(burst_gap_ms));
